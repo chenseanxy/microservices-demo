@@ -21,6 +21,7 @@ kind: Deployment
 metadata:
   name: emailservice
 spec:
+  replicas: 2
   selector:
     matchLabels:
       app: emailservice
@@ -54,10 +55,10 @@ spec:
         resources:
           requests:
             cpu: 100m
-            memory: 64Mi
+            memory: 256Mi
           limits:
-            cpu: 200m
-            memory: 128Mi
+            cpu: 100m
+            memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -77,6 +78,7 @@ kind: Deployment
 metadata:
   name: checkoutservice
 spec:
+  replicas: 3
   selector:
     matchLabels:
       app: checkoutservice
@@ -122,11 +124,11 @@ spec:
           #   value: "jaeger-collector:14268"
           resources:
             requests:
-              cpu: 100m
-              memory: 64Mi
+              cpu: 700m
+              memory: 256Mi
             limits:
-              cpu: 200m
-              memory: 128Mi
+              cpu: 700m
+              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -146,6 +148,7 @@ kind: Deployment
 metadata:
   name: recommendationservice
 spec:
+  replicas: 5
   selector:
     matchLabels:
       app: recommendationservice
@@ -182,11 +185,11 @@ spec:
         #   value: "1"
         resources:
           requests:
-            cpu: 100m
-            memory: 220Mi
+              cpu: 1000m
+              memory: 512Mi
           limits:
-            cpu: 200m
-            memory: 450Mi
+            cpu: 1000m
+            memory: 512Mi
 ---
 apiVersion: v1
 kind: Service
@@ -206,6 +209,7 @@ kind: Deployment
 metadata:
   name: frontend
 spec:
+  replicas: 6
   selector:
     matchLabels:
       app: frontend
@@ -265,11 +269,11 @@ spec:
           #   value: "jaeger-collector:14268"
           resources:
             requests:
-              cpu: 100m
-              memory: 64Mi
+              cpu: 2000m
+              memory: 512Mi
             limits:
-              cpu: 200m
-              memory: 128Mi
+              cpu: 2000m
+              memory: 512Mi
 ---
 apiVersion: v1
 kind: Service
@@ -302,6 +306,7 @@ kind: Deployment
 metadata:
   name: paymentservice
 spec:
+  replicas: 2
   selector:
     matchLabels:
       app: paymentservice
@@ -328,11 +333,11 @@ spec:
             command: ["/bin/grpc_health_probe", "-addr=:50051"]
         resources:
           requests:
-            cpu: 100m
-            memory: 64Mi
+              cpu: 100m
+              memory: 512Mi
           limits:
-            cpu: 200m
-            memory: 128Mi
+              cpu: 100m
+              memory: 512Mi
 ---
 apiVersion: v1
 kind: Service
@@ -352,6 +357,7 @@ kind: Deployment
 metadata:
   name: productcatalogservice
 spec:
+  replicas: 5
   selector:
     matchLabels:
       app: productcatalogservice
@@ -386,11 +392,11 @@ spec:
             command: ["/bin/grpc_health_probe", "-addr=:3550"]
         resources:
           requests:
-            cpu: 100m
-            memory: 64Mi
+              cpu: 1000m
+              memory: 256Mi
           limits:
-            cpu: 200m
-            memory: 128Mi
+              cpu: 1000m
+              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -410,6 +416,7 @@ kind: Deployment
 metadata:
   name: cartservice
 spec:
+  replicas: 3
   selector:
     matchLabels:
       app: cartservice
@@ -430,11 +437,11 @@ spec:
           value: "redis-cart:6379"
         resources:
           requests:
-            cpu: 200m
-            memory: 64Mi
+            cpu: 1000m
+            memory: 256Mi
           limits:
-            cpu: 300m
-            memory: 128Mi
+            cpu: 1000M
+            memory: 256Mi
         readinessProbe:
           initialDelaySeconds: 15
           exec:
@@ -467,6 +474,8 @@ spec:
     matchLabels:
       app: loadgenerator
   replicas: 1
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
@@ -477,27 +486,88 @@ spec:
       serviceAccountName: default
       terminationGracePeriodSeconds: 5
       restartPolicy: Always
+      nodeSelector:
+        kubernetes.io/hostname: x-k8s-0
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
       containers:
       - name: main
         image: gcr.io/google-samples/microservices-demo/loadgenerator:v0.2.2
+        command:
+          - locust 
+          - --host=http://frontend:80
+          - -u
+          - "2900"
+          - -r
+          - "20"
+        ports:
+          - containerPort: 8089
+            name: locust
         env:
         - name: FRONTEND_ADDR
           value: "frontend:80"
-        - name: USERS
-          value: "10"
         resources:
           requests:
-            cpu: 300m
+            cpu: 2000m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+      - name: exporter
+        image: containersol/locust_exporter
+        ports:
+        - containerPort: 9646
+          name: exporter
+        resources:
+          requests:
+            cpu: 100m
             memory: 256Mi
           limits:
-            cpu: 500m
+            cpu: 200m
             memory: 512Mi
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: locust
+  labels:
+    app: loadgenerator
+spec:
+  selector:
+    app: loadgenerator
+  type: ClusterIP
+  ports:
+  - name: exporter
+    port: 9646
+  - name: locust
+    port: 8089
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: locust
+  labels:
+    app: loadgenerator
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: loadgenerator
+  namespaceSelector:
+    matchNames:
+      - default
+  endpoints:
+  - port: exporter
+    interval: 1s
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: currencyservice
 spec:
+  replicas: 3
   selector:
     matchLabels:
       app: currencyservice
@@ -531,11 +601,11 @@ spec:
             command: ["/bin/grpc_health_probe", "-addr=:7000"]
         resources:
           requests:
-            cpu: 100m
-            memory: 64Mi
+            cpu: 1000m
+            memory: 256Mi
           limits:
-            cpu: 200m
-            memory: 128Mi
+            cpu: 1000m
+            memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -555,6 +625,7 @@ kind: Deployment
 metadata:
   name: shippingservice
 spec:
+  replicas: 2
   selector:
     matchLabels:
       app: shippingservice
@@ -589,11 +660,11 @@ spec:
             command: ["/bin/grpc_health_probe", "-addr=:50051"]
         resources:
           requests:
-            cpu: 100m
-            memory: 64Mi
+            cpu: 200m
+            memory: 256Mi
           limits:
             cpu: 200m
-            memory: 128Mi
+            memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -642,8 +713,8 @@ spec:
             memory: 256Mi
             cpu: 125m
           requests:
-            cpu: 70m
-            memory: 200Mi
+            memory: 256Mi
+            cpu: 125m
       volumes:
       - name: redis-data
         emptyDir: {}
@@ -666,6 +737,7 @@ kind: Deployment
 metadata:
   name: adservice
 spec:
+  replicas: 2
   selector:
     matchLabels:
       app: adservice
@@ -692,11 +764,11 @@ spec:
         #  value: "jaeger-collector:14268"
         resources:
           requests:
-            cpu: 200m
-            memory: 180Mi
+            cpu: 500m
+            memory: 1024Mi
           limits:
-            cpu: 300m
-            memory: 300Mi
+            cpu: 500m
+            memory: 1024Mi
         readinessProbe:
           initialDelaySeconds: 20
           periodSeconds: 15
